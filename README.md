@@ -1,33 +1,33 @@
 # YouTube Clip Stitcher
 
-A Python script that takes YouTube timestamp links and creates a compilation video with 30-second clips from each link.
+A Python script that creates video compilations from YouTube timestamp links with optional blend transitions between clips.
+
+## Features
+
+- Download and process clips from YouTube URLs with timestamps
+- Optional smooth blend transitions between clips
+- Automatic video quality normalization (1080p, 30fps)
+- Clean modular codebase for easy customization
 
 ## Prerequisites
 
-1. **Python 3.7+** - Make sure Python is installed and in your PATH
-2. **ffmpeg** - Download from [https://ffmpeg.org/download.html](https://ffmpeg.org/download.html) and add to your PATH
-3. **yt-dlp** - Will be installed via pip (see installation steps below)
+1. **Python 3.7+**
+2. **ffmpeg** - Download from [https://ffmpeg.org/download.html](https://ffmpeg.org/download.html)
+3. **yt-dlp** - Installed automatically via requirements.txt
 
 ## Installation
 
-1. Install Python dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-2. Make sure ffmpeg is installed and accessible from command line:
-   ```bash
-   ffmpeg -version
-   ```
+```bash
+pip install -r requirements.txt
+```
 
 ## Usage
 
-1. **Create input file**: Add your YouTube URLs with timestamps to `input.txt`, one URL per line. The script supports various YouTube URL formats:
+1. **Add URLs to input.txt** (one per line):
    ```
-   https://youtu.be/pPoYQPcBUQ4?si=gyaSIZT2We27H7D5&t=35
-   https://youtu.be/8W5TWR74Mms?si=56q7sv8pDpOi8oz8&t=49
+   https://youtu.be/pPoYQPcBUQ4?t=35
+   https://youtu.be/8W5TWR74Mms?t=49
    https://youtu.be/Sv2MLXAT8Bw?t=55
-   https://www.youtube.com/watch?v=VIDEO_ID&t=120
    ```
 
 2. **Run the script**:
@@ -35,47 +35,36 @@ A Python script that takes YouTube timestamp links and creates a compilation vid
    python stitch.py
    ```
 
-3. **Output**: The script will create `final_output.mp4` containing all the 30-second clips stitched together.
-
-## How it works
-
-1. **Parse URLs**: Extracts video IDs and timestamps from YouTube URLs
-2. **Download**: Uses yt-dlp to download each video (up to 1080p quality, capped for speed)
-3. **Extract clips**: Uses ffmpeg to extract 30-second segments with hardware acceleration when available
-4. **Concatenate**: Combines all clips into a single video file using stream copying for speed
-5. **Cleanup**: Removes all temporary files
-
-## Features
-
-- ✅ Supports multiple YouTube URL formats
-- ✅ Downloads videos in up to 1080p quality (capped for faster processing)
-- ✅ Hardware acceleration support (NVIDIA GPUs) with software fallback
-- ✅ Fast processing with ultrafast encoding presets
-- ✅ Stream copying for concatenation (no re-encoding)
-- ✅ Parallel fragment downloads for faster video retrieval
-- ✅ Extracts precise 30-second clips from specified timestamps
-- ✅ Automatic cleanup of temporary files
-- ✅ Progress tracking and error handling
-- ✅ Dependency checking before execution
-
-## Troubleshooting
-
-- **ffmpeg not found**: Make sure ffmpeg is installed and in your system PATH
-- **yt-dlp errors**: Some videos may be unavailable or have download restrictions
-- **Permission errors**: Make sure you have write permissions in the script directory
-- **Long processing times**: Downloading videos can take time depending on your internet connection
+3. **Get your video**: `final_output.mp4` will be created with all clips stitched together.
 
 ## Configuration
 
-You can modify these settings in the `main()` function:
-- `clip_duration`: Length of each clip in seconds (default: 30)
-- `output_file`: Name of the final output video (default: "final_output.mp4")
+Edit settings in `utils/config.py`:
 
-For advanced users, you can adjust quality settings in the code:
-- Video quality: Modify the `-crf` parameter (lower = better quality, 18 = visually lossless)
-- Audio quality: Modify the `-b:a` parameter (higher = better quality, 192k = high quality)
-- Video resolution: Modify the `-f` parameter in yt-dlp command
+```python
+class Config:
+    def __init__(self):
+        self.clip_duration = 30          # Clip length in seconds
+        self.use_transitions = True      # Enable blend transitions
+        self.transition_duration = 1.0   # Transition length in seconds
+        self.output_file = "final_output.mp4"
+```
+
+## How it Works
+
+1. **Parse** YouTube URLs and extract video IDs + timestamps
+2. **Download** videos using yt-dlp (up to 1080p)
+3. **Process** clips with ffmpeg (normalize to 1080p@30fps)
+4. **Stitch** clips together with optional blend transitions
+5. **Cleanup** temporary files automatically
+
+
+## Troubleshooting
+
+- **ffmpeg not found**: Make sure ffmpeg is in your system PATH
+- **yt-dlp errors**: Some videos may be restricted or unavailable
+- **Slow processing**: Video download and processing takes time
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+MIT License - see LICENSE file for details.
