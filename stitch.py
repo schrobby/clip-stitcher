@@ -1,217 +1,248 @@
 import os
+import re
 import subprocess
-from urllib.parse import urlparse, parse_qs
-from datetime import timedelta
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from tqdm import tqdm
+import tempfile
 import shutil
-import platform
+from urllib.parse import urlparse, parse_qs
+from pathlib import Path
 
-# === SETTINGS ===
-INPUT_LINKS_FILE = "input.txt"
-OUTPUT_DIR = "clips"
-FINAL_OUTPUT = "final_output.mp4"
-DURATION_SECONDS = 30
-MAX_PARALLEL_DOWNLOADS = 4
-RETRY_COUNT = 3
-IS_WINDOWS = platform.system() == "Windows"
-
-os.makedirs(OUTPUT_DIR, exist_ok=True)
-
-
-def normalize(path):
-    return os.path.normpath(path)
-
-
-def seconds_to_hhmmss(seconds):
-    return str(timedelta(seconds=int(seconds))).zfill(8)
-
-
-def parse_link(link):
-    link = link.strip()
-    parsed = urlparse(link)
-    query = parse_qs(parsed.query)
-
-    # Get video ID
-    if "youtube.com" in parsed.netloc:
-        video_id = query.get("v", [None])[0]
-    elif "youtu.be" in parsed.netloc:
-        video_id = parsed.path.lstrip("/")
-    else:
-        raise ValueError(f"Unsupported YouTube domain: {link}")
-
+def parse_youtube_url(url):
+    """
+    Parse YouTube URL to extract video ID and timestamp.
+    Supports various YouTube URL formats.
+    """
+    # Regular expressions for different YouTube URL formats
+    patterns = [
+        r'(?:youtube\.com/watch\?v=|youtu\.be/)([a-zA-Z0-9_-]+)',
+        r'youtube\.com/embed/([a-zA-Z0-9_-]+)',
+        r'youtube\.com/v/([a-zA-Z0-9_-]+)'
+    ]
+    
+    video_id = None
+    for pattern in patterns:
+        match = re.search(pattern, url)
+        if match:
+            video_id = match.group(1)
+            break
+    
     if not video_id:
-        raise ValueError(f"Could not extract video ID from: {link}")
+        raise ValueError(f"Could not extract video ID from URL: {url}")
+    
+    # Extract timestamp
+    timestamp = 0
+    if 't=' in url:
+        # Parse t parameter
+        parsed_url = urlparse(url)
+        if parsed_url.query:
+            params = parse_qs(parsed_url.query)
+            if 't' in params:
+                timestamp = int(params['t'][0])
+    
+    return video_id, timestamp
 
-    # Get timestamp
-    timestamp_sec = None
-    if "t" in query:
-        timestamp_sec = int(query["t"][0])
-    elif parsed.fragment.startswith("t="):  # e.g., #t=123
-        timestamp_sec = int(parsed.fragment.split("=")[-1])
-    else:
-        raise ValueError(f"No timestamp found in: {link}")
+def check_dependencies():
+    """Check if required dependencies (yt-dlp and ffmpeg) are available."""
+    try:
+        subprocess.run(['yt-dlp', '--version'], capture_output=True, check=True)
+        print("✓ yt-dlp is available")
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        print("❌ yt-dlp is not installed or not in PATH")
+        print("Install with: pip install yt-dlp")
+        return False
+    
+    try:
+        subprocess.run(['ffmpeg', '-version'], capture_output=True, check=True)
+        print("✓ ffmpeg is available")
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        print("❌ ffmpeg is not installed or not in PATH")
+        print("Download from: https://ffmpeg.org/download.html")
+        return False
+    
+    return True
 
-    timestamp_hhmmss = seconds_to_hhmmss(timestamp_sec)
-    full_url = f"https://www.youtube.com/watch?v={video_id}"
-    return full_url, timestamp_hhmmss
-
-
-def download_full_video(video_id, output_path):
-    if os.path.exists(output_path):
-        return  # Skip if already downloaded
-    url = f"https://www.youtube.com/watch?v={video_id}"
+def download_video_segment(video_id, start_time, duration, output_path, temp_dir):
+    """
+    Download a specific segment of a YouTube video.
+    """
+    video_url = f"https://www.youtube.com/watch?v={video_id}"
+    temp_video_path = os.path.join(temp_dir, f"{video_id}_full.%(ext)s")
+    
+    print(f"Downloading video {video_id}...")
+    
+    # Download the full video first
     cmd = [
-        "yt-dlp",
-        "--quiet",
-        "--no-warnings",
-        "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/mp4",
-        "-o", output_path,
-        url
+        'yt-dlp',
+        '-f', 'best[height<=720]',  # Limit quality to 720p for faster download
+        '-o', temp_video_path,
+        video_url
     ]
-    subprocess.run(cmd, check=True, shell=IS_WINDOWS)
+    
+    try:
+        subprocess.run(cmd, capture_output=True, text=True, check=True)
+        
+        # Find the actual downloaded file
+        downloaded_files = list(Path(temp_dir).glob(f"{video_id}_full.*"))
+        if not downloaded_files:
+            raise FileNotFoundError(f"Downloaded video file not found for {video_id}")
+        
+        full_video_path = str(downloaded_files[0])
+        
+        print(f"Extracting {duration}s clip starting at {start_time}s...")
+        
+        # Extract the specific segment using ffmpeg
+        cmd_extract = [
+            'ffmpeg',
+            '-i', full_video_path,
+            '-ss', str(start_time),
+            '-t', str(duration),
+            '-c', 'copy',  # Copy without re-encoding for speed
+            '-avoid_negative_ts', 'make_zero',
+            output_path,
+            '-y'  # Overwrite output file if it exists
+        ]
+        
+        subprocess.run(cmd_extract, capture_output=True, check=True)
+        
+        # Remove the full video file to save space
+        os.remove(full_video_path)
+        
+        print(f"✓ Clip saved: {output_path}")
+        return True
+        
+    except subprocess.CalledProcessError as e:
+        print(f"❌ Error processing video {video_id}: {e}")
+        print(f"Command output: {e.stderr}")
+        return False
 
-def cut_segment(index, input_path, start_time_hhmmss):
-    output_path = normalize(os.path.join(OUTPUT_DIR, f"clip_{index}.mp4"))
+def create_video_list_file(clip_paths, temp_dir):
+    """Create a text file listing all video clips for ffmpeg concatenation."""
+    list_file_path = os.path.join(temp_dir, "video_list.txt")
     
-    # Check if input has audio stream
-    probe_cmd = [
-        "ffprobe", "-v", "quiet", "-select_streams", "a", 
-        "-show_entries", "stream=index", "-of", "csv=p=0", input_path
-    ]
-    result = subprocess.run(probe_cmd, capture_output=True, text=True, shell=IS_WINDOWS)
-    has_audio = bool(result.stdout.strip())
+    with open(list_file_path, 'w') as f:
+        for clip_path in clip_paths:
+            # Use forward slashes for ffmpeg, even on Windows
+            normalized_path = clip_path.replace('\\', '/')
+            f.write(f"file '{normalized_path}'\n")
     
+    return list_file_path
+
+def concatenate_videos(clip_paths, output_path, temp_dir):
+    """Concatenate all video clips into a single video."""
+    if not clip_paths:
+        print("❌ No clips to concatenate")
+        return False
+    
+    print(f"Concatenating {len(clip_paths)} clips...")
+    
+    # Create video list file
+    list_file_path = create_video_list_file(clip_paths, temp_dir)
+    
+    # Use ffmpeg to concatenate
     cmd = [
-        "ffmpeg", "-y",
-        "-ss", start_time_hhmmss,
-        "-i", input_path,
-        "-t", str(DURATION_SECONDS),
-        "-c:v", "libx264", "-preset", "ultrafast",
-        "-map", "0:v:0",
-        "-movflags", "+faststart"
+        'ffmpeg',
+        '-f', 'concat',
+        '-safe', '0',
+        '-i', list_file_path,
+        '-c', 'copy',
+        output_path,
+        '-y'
     ]
     
-    # Only add audio options if audio stream exists
-    if has_audio:
-        cmd.extend(["-c:a", "aac", "-b:a", "128k", "-map", "0:a:0"])
-    
-    cmd.append(output_path)
-    subprocess.run(cmd, check=True, shell=IS_WINDOWS)
-    return output_path
-
-def process_clip(index, video_id, timestamp_hhmmss):
-    full_video_path = normalize(os.path.join(OUTPUT_DIR, f"full_{video_id}.mp4"))
-    download_full_video(video_id, full_video_path)
-    return cut_segment(index, full_video_path, timestamp_hhmmss)
-
-
-
-def convert_to_safe_mp4(index, input_path):
-    safe_path = normalize(os.path.join(OUTPUT_DIR, f"clip_{index}.mp4"))
-    
-    # Check if input has audio stream
-    probe_cmd = [
-        "ffprobe", "-v", "quiet", "-select_streams", "a", 
-        "-show_entries", "stream=index", "-of", "csv=p=0", normalize(input_path)
-    ]
-    result = subprocess.run(probe_cmd, capture_output=True, text=True, shell=IS_WINDOWS)
-    has_audio = bool(result.stdout.strip())
-    
-    cmd = [
-        "ffmpeg",
-        "-y",
-        "-i",
-        normalize(input_path),
-        "-c:v",
-        "libx264",
-        "-preset",
-        "ultrafast",
-        "-map", "0:v:0",
-        "-movflags",
-        "+faststart"
-    ]
-    
-    # Only add audio options if audio stream exists
-    if has_audio:
-        cmd.extend(["-c:a", "aac", "-b:a", "128k", "-map", "0:a:0"])
-    
-    cmd.append(safe_path)
-    subprocess.run(cmd, check=True, shell=IS_WINDOWS)
-    return safe_path
-
+    try:
+        subprocess.run(cmd, capture_output=True, check=True)
+        print(f"✓ Final video created: {output_path}")
+        return True
+    except subprocess.CalledProcessError as e:
+        print(f"❌ Error concatenating videos: {e}")
+        return False
 
 def main():
-    with open(INPUT_LINKS_FILE, "r") as f:
-        raw_links = [line.strip() for line in f if line.strip()]
-
-    links = [parse_link(link) for link in raw_links]
-
-    safe_clips = []
-
-    print("📥 Downloading full videos and cutting clips...")
-    with ThreadPoolExecutor(max_workers=MAX_PARALLEL_DOWNLOADS) as executor:
-        futures = [
-            executor.submit(process_clip, i, video_id, timestamp)
-            for i, (url, timestamp) in enumerate(links)
-            for video_id in [url.split("v=")[-1]]
-        ]
-        for future in tqdm(as_completed(futures), total=len(futures)):
-            safe_clips.append(future.result())
-
-
-    print("🔗 Concatenating...")
-    with open("inputs.txt", "w", encoding="utf-8") as f:
-        for path in safe_clips:
-            abs_path = normalize(os.path.abspath(path)).replace("\\", "/")
-            f.write(f"file '{abs_path}'\n")
-
-    # Check if any of the clips have audio
-    has_audio_clips = False
-    for clip_path in safe_clips:
-        probe_cmd = [
-            "ffprobe", "-v", "quiet", "-select_streams", "a", 
-            "-show_entries", "stream=index", "-of", "csv=p=0", clip_path
-        ]
-        result = subprocess.run(probe_cmd, capture_output=True, text=True, shell=IS_WINDOWS)
-        if result.stdout.strip():
-            has_audio_clips = True
-            break
-
-    concat_cmd = [
-        "ffmpeg",
-        "-y",
-        "-f",
-        "concat",
-        "-safe",
-        "0",
-        "-i",
-        "inputs.txt",
-        "-c:v",
-        "copy"
-    ]
+    """Main function to process YouTube URLs and create video compilation."""
     
-    # Only add audio codec if clips have audio
-    if has_audio_clips:
-        concat_cmd.extend(["-c:a", "aac", "-b:a", "128k"])
+    # Configuration
+    input_file = "input.txt"
+    output_file = "final_output.mp4"
+    clip_duration = 30  # seconds
     
-    concat_cmd.append(FINAL_OUTPUT)
-
-    subprocess.run(
-        concat_cmd,
-        check=True,
-        shell=IS_WINDOWS,
-    )
-
-    print(f"✅ Done. Final video created: {FINAL_OUTPUT}")
-
-    print("🧹 Cleaning up temporary files...")
-    shutil.rmtree(OUTPUT_DIR)
-    if os.path.exists("inputs.txt"):
-        os.remove("inputs.txt")
-
-    print("🏁 Finished cleanly.")
-
+    print("🎬 YouTube Clip Stitcher")
+    print("=" * 30)
+    
+    # Check dependencies
+    if not check_dependencies():
+        return
+    
+    # Check if input file exists
+    if not os.path.exists(input_file):
+        print(f"❌ Input file '{input_file}' not found")
+        return
+    
+    # Read URLs from input file
+    print(f"Reading URLs from {input_file}...")
+    urls = []
+    try:
+        with open(input_file, 'r') as f:
+            urls = [line.strip() for line in f if line.strip()]
+    except Exception as e:
+        print(f"❌ Error reading input file: {e}")
+        return
+    
+    if not urls:
+        print("❌ No URLs found in input file")
+        return
+    
+    print(f"Found {len(urls)} URLs to process")
+    
+    # Create temporary directory
+    temp_dir = tempfile.mkdtemp(prefix="clip_stitcher_")
+    print(f"Working directory: {temp_dir}")
+    
+    try:
+        clip_paths = []
+        
+        # Process each URL
+        for i, url in enumerate(urls, 1):
+            print(f"\n--- Processing clip {i}/{len(urls)} ---")
+            print(f"URL: {url}")
+            
+            try:
+                # Parse URL
+                video_id, start_time = parse_youtube_url(url)
+                print(f"Video ID: {video_id}, Start time: {start_time}s")
+                
+                # Download and extract clip
+                clip_filename = f"clip_{i:03d}_{video_id}.mp4"
+                clip_path = os.path.join(temp_dir, clip_filename)
+                
+                if download_video_segment(video_id, start_time, clip_duration, clip_path, temp_dir):
+                    clip_paths.append(clip_path)
+                else:
+                    print(f"⚠️  Skipping clip {i} due to download error")
+                    
+            except Exception as e:
+                print(f"❌ Error processing URL {i}: {e}")
+                continue
+        
+        # Concatenate all clips
+        if clip_paths:
+            print("\n--- Creating final video ---")
+            if concatenate_videos(clip_paths, output_file, temp_dir):
+                print(f"\n🎉 Success! Final video saved as: {output_file}")
+                print(f"📊 Total clips processed: {len(clip_paths)}")
+                print(f"⏱️  Total duration: ~{len(clip_paths) * clip_duration} seconds")
+            else:
+                print("❌ Failed to create final video")
+        else:
+            print("❌ No clips were successfully downloaded")
+    
+    finally:
+        # Cleanup temporary files
+        print("\n--- Cleaning up ---")
+        try:
+            shutil.rmtree(temp_dir)
+            print("✓ Temporary files cleaned up")
+        except Exception as e:
+            print(f"⚠️  Warning: Could not clean up temporary directory: {e}")
+            print(f"Manual cleanup may be needed: {temp_dir}")
 
 if __name__ == "__main__":
     main()
