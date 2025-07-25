@@ -40,17 +40,19 @@ A Python script that takes YouTube timestamp links and creates a compilation vid
 ## How it works
 
 1. **Parse URLs**: Extracts video IDs and timestamps from YouTube URLs
-2. **Download**: Uses yt-dlp to download each video (up to 1080p quality with best audio)
-3. **Extract clips**: Uses ffmpeg to extract 30-second segments with high-quality re-encoding
-4. **Concatenate**: Combines all clips into a single video file with consistent quality
+2. **Download**: Uses yt-dlp to download each video (up to 1080p quality, capped for speed)
+3. **Extract clips**: Uses ffmpeg to extract 30-second segments with hardware acceleration when available
+4. **Concatenate**: Combines all clips into a single video file using stream copying for speed
 5. **Cleanup**: Removes all temporary files
 
 ## Features
 
 - ✅ Supports multiple YouTube URL formats
-- ✅ Downloads videos in up to 1080p quality with best available audio
-- ✅ High-quality video encoding (H.264 with CRF 18 - visually lossless)
-- ✅ High-quality audio encoding (AAC at 192kbps)
+- ✅ Downloads videos in up to 1080p quality (capped for faster processing)
+- ✅ Hardware acceleration support (NVIDIA GPUs) with software fallback
+- ✅ Fast processing with ultrafast encoding presets
+- ✅ Stream copying for concatenation (no re-encoding)
+- ✅ Parallel fragment downloads for faster video retrieval
 - ✅ Extracts precise 30-second clips from specified timestamps
 - ✅ Automatic cleanup of temporary files
 - ✅ Progress tracking and error handling
