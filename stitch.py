@@ -1,6 +1,5 @@
 import os
 import subprocess
-import time
 from urllib.parse import urlparse, parse_qs
 from datetime import timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -58,38 +57,40 @@ def parse_link(link):
     return full_url, timestamp_hhmmss
 
 
-def download_clip(url, start_time, output_path):
-    end_time = seconds_to_hhmmss(
-        sum(int(x) * 60**i for i, x in enumerate(reversed(start_time.split(":"))))
-        + DURATION_SECONDS
-    )
-    section = f"*{start_time}-{end_time}"
-
+def download_full_video(video_id, output_path):
+    if os.path.exists(output_path):
+        return  # Skip if already downloaded
+    url = f"https://www.youtube.com/watch?v={video_id}"
     cmd = [
         "yt-dlp",
         "--quiet",
         "--no-warnings",
-        "--download-sections",
-        section,
-        "-f",
-        "bestvideo[ext=mp4]+bestaudio[ext=m4a]/mp4",
-        "-o",
-        normalize(output_path),
-        url,
+        "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/mp4",
+        "-o", output_path,
+        url
     ]
     subprocess.run(cmd, check=True, shell=IS_WINDOWS)
 
+def cut_segment(index, input_path, start_time_hhmmss):
+    output_path = normalize(os.path.join(OUTPUT_DIR, f"clip_{index}.mp4"))
+    cmd = [
+        "ffmpeg", "-y",
+        "-ss", start_time_hhmmss,
+        "-i", input_path,
+        "-t", str(DURATION_SECONDS),
+        "-c:v", "libx264", "-preset", "ultrafast",
+        "-c:a", "aac",
+        "-movflags", "+faststart",
+        output_path
+    ]
+    subprocess.run(cmd, check=True, shell=IS_WINDOWS)
+    return output_path
 
-def download_clip_retry(index, url, start_time):
-    temp_path = normalize(os.path.join(OUTPUT_DIR, f"raw_{index}.mp4"))
-    for attempt in range(1, RETRY_COUNT + 1):
-        try:
-            download_clip(url, start_time, temp_path)
-            return temp_path
-        except subprocess.CalledProcessError:
-            print(f"[{index}] Retry {attempt}/{RETRY_COUNT} failed for {url}")
-            time.sleep(2)
-    raise RuntimeError(f"[{index}] Failed after {RETRY_COUNT} retries: {url}")
+def process_clip(index, video_id, timestamp_hhmmss):
+    full_video_path = normalize(os.path.join(OUTPUT_DIR, f"full_{video_id}.mp4"))
+    download_full_video(video_id, full_video_path)
+    return cut_segment(index, full_video_path, timestamp_hhmmss)
+
 
 
 def convert_to_safe_mp4(index, input_path):
@@ -119,21 +120,18 @@ def main():
 
     links = [parse_link(link) for link in raw_links]
 
-    downloaded = []
+    safe_clips = []
 
-    print("📥 Downloading clips in parallel...")
+    print("📥 Downloading full videos and cutting clips...")
     with ThreadPoolExecutor(max_workers=MAX_PARALLEL_DOWNLOADS) as executor:
         futures = [
-            executor.submit(download_clip_retry, i, url, timestamp)
+            executor.submit(process_clip, i, video_id, timestamp)
             for i, (url, timestamp) in enumerate(links)
+            for video_id in [url.split("v=")[-1]]
         ]
         for future in tqdm(as_completed(futures), total=len(futures)):
-            downloaded.append(future.result())
+            safe_clips.append(future.result())
 
-    print("🎞️ Re-encoding all clips...")
-    safe_clips = []
-    for i, path in tqdm(enumerate(downloaded), total=len(downloaded)):
-        safe_clips.append(convert_to_safe_mp4(i, path))
 
     print("🔗 Concatenating...")
     with open("inputs.txt", "w", encoding="utf-8") as f:
