@@ -69,10 +69,11 @@ def download_video_segment(video_id, start_time, duration, output_path, temp_dir
     
     print(f"Downloading video {video_id}...")
     
-    # Download the full video first
+    # Download the full video first with high quality
     cmd = [
         'yt-dlp',
-        '-f', 'best[height<=720]',  # Limit quality to 720p for faster download
+        '-f', 'bestvideo[height>=720]+bestaudio/best[height>=720]/best',  # Prioritize 720p+ with separate audio
+        '--merge-output-format', 'mp4',  # Ensure MP4 output
         '-o', temp_video_path,
         video_url
     ]
@@ -89,13 +90,18 @@ def download_video_segment(video_id, start_time, duration, output_path, temp_dir
         
         print(f"Extracting {duration}s clip starting at {start_time}s...")
         
-        # Extract the specific segment using ffmpeg
+        # Extract the specific segment using ffmpeg with high quality re-encoding and resolution scaling
         cmd_extract = [
             'ffmpeg',
             '-i', full_video_path,
             '-ss', str(start_time),
             '-t', str(duration),
-            '-c', 'copy',  # Copy without re-encoding for speed
+            '-c:v', 'libx264',  # Use H.264 codec for video
+            '-preset', 'medium',  # Balance between speed and compression
+            '-crf', '18',  # High quality (lower is better, 18 is visually lossless)
+            '-vf', 'scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,setsar=1',  # Scale to 1080p with padding
+            '-c:a', 'aac',  # Use AAC codec for audio
+            '-b:a', '192k',  # High audio bitrate
             '-avoid_negative_ts', 'make_zero',
             output_path,
             '-y'  # Overwrite output file if it exists
@@ -137,13 +143,18 @@ def concatenate_videos(clip_paths, output_path, temp_dir):
     # Create video list file
     list_file_path = create_video_list_file(clip_paths, temp_dir)
     
-    # Use ffmpeg to concatenate
+    # Use ffmpeg to concatenate with high quality encoding and consistent 1080p resolution
     cmd = [
         'ffmpeg',
         '-f', 'concat',
         '-safe', '0',
         '-i', list_file_path,
-        '-c', 'copy',
+        '-c:v', 'libx264',  # Re-encode video for consistency
+        '-preset', 'medium',  # Balance speed and compression
+        '-crf', '18',  # High quality
+        '-vf', 'scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,setsar=1',  # Ensure 1080p output
+        '-c:a', 'aac',  # Re-encode audio for consistency
+        '-b:a', '192k',  # High audio bitrate
         output_path,
         '-y'
     ]

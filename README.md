@@ -40,15 +40,17 @@ A Python script that takes YouTube timestamp links and creates a compilation vid
 ## How it works
 
 1. **Parse URLs**: Extracts video IDs and timestamps from YouTube URLs
-2. **Download**: Uses yt-dlp to download each video (limited to 720p for faster processing)
-3. **Extract clips**: Uses ffmpeg to extract 30-second segments starting from specified timestamps
-4. **Concatenate**: Combines all clips into a single video file
+2. **Download**: Uses yt-dlp to download each video (up to 1080p quality with best audio)
+3. **Extract clips**: Uses ffmpeg to extract 30-second segments with high-quality re-encoding
+4. **Concatenate**: Combines all clips into a single video file with consistent quality
 5. **Cleanup**: Removes all temporary files
 
 ## Features
 
 - ✅ Supports multiple YouTube URL formats
-- ✅ Downloads videos in 720p quality for optimal file size/quality balance
+- ✅ Downloads videos in up to 1080p quality with best available audio
+- ✅ High-quality video encoding (H.264 with CRF 18 - visually lossless)
+- ✅ High-quality audio encoding (AAC at 192kbps)
 - ✅ Extracts precise 30-second clips from specified timestamps
 - ✅ Automatic cleanup of temporary files
 - ✅ Progress tracking and error handling
@@ -66,7 +68,11 @@ A Python script that takes YouTube timestamp links and creates a compilation vid
 You can modify these settings in the `main()` function:
 - `clip_duration`: Length of each clip in seconds (default: 30)
 - `output_file`: Name of the final output video (default: "final_output.mp4")
-- Video quality: Modify the `-f` parameter in the yt-dlp command
+
+For advanced users, you can adjust quality settings in the code:
+- Video quality: Modify the `-crf` parameter (lower = better quality, 18 = visually lossless)
+- Audio quality: Modify the `-b:a` parameter (higher = better quality, 192k = high quality)
+- Video resolution: Modify the `-f` parameter in yt-dlp command
 
 ## License
 
