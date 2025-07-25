@@ -73,16 +73,30 @@ def download_full_video(video_id, output_path):
 
 def cut_segment(index, input_path, start_time_hhmmss):
     output_path = normalize(os.path.join(OUTPUT_DIR, f"clip_{index}.mp4"))
+    
+    # Check if input has audio stream
+    probe_cmd = [
+        "ffprobe", "-v", "quiet", "-select_streams", "a", 
+        "-show_entries", "stream=index", "-of", "csv=p=0", input_path
+    ]
+    result = subprocess.run(probe_cmd, capture_output=True, text=True, shell=IS_WINDOWS)
+    has_audio = bool(result.stdout.strip())
+    
     cmd = [
         "ffmpeg", "-y",
         "-ss", start_time_hhmmss,
         "-i", input_path,
         "-t", str(DURATION_SECONDS),
         "-c:v", "libx264", "-preset", "ultrafast",
-        "-c:a", "aac",
-        "-movflags", "+faststart",
-        output_path
+        "-map", "0:v:0",
+        "-movflags", "+faststart"
     ]
+    
+    # Only add audio options if audio stream exists
+    if has_audio:
+        cmd.extend(["-c:a", "aac", "-b:a", "128k", "-map", "0:a:0"])
+    
+    cmd.append(output_path)
     subprocess.run(cmd, check=True, shell=IS_WINDOWS)
     return output_path
 
@@ -95,6 +109,15 @@ def process_clip(index, video_id, timestamp_hhmmss):
 
 def convert_to_safe_mp4(index, input_path):
     safe_path = normalize(os.path.join(OUTPUT_DIR, f"clip_{index}.mp4"))
+    
+    # Check if input has audio stream
+    probe_cmd = [
+        "ffprobe", "-v", "quiet", "-select_streams", "a", 
+        "-show_entries", "stream=index", "-of", "csv=p=0", normalize(input_path)
+    ]
+    result = subprocess.run(probe_cmd, capture_output=True, text=True, shell=IS_WINDOWS)
+    has_audio = bool(result.stdout.strip())
+    
     cmd = [
         "ffmpeg",
         "-y",
@@ -104,12 +127,16 @@ def convert_to_safe_mp4(index, input_path):
         "libx264",
         "-preset",
         "ultrafast",
-        "-c:a",
-        "aac",
+        "-map", "0:v:0",
         "-movflags",
-        "+faststart",
-        safe_path,
+        "+faststart"
     ]
+    
+    # Only add audio options if audio stream exists
+    if has_audio:
+        cmd.extend(["-c:a", "aac", "-b:a", "128k", "-map", "0:a:0"])
+    
+    cmd.append(safe_path)
     subprocess.run(cmd, check=True, shell=IS_WINDOWS)
     return safe_path
 
@@ -139,20 +166,39 @@ def main():
             abs_path = normalize(os.path.abspath(path)).replace("\\", "/")
             f.write(f"file '{abs_path}'\n")
 
+    # Check if any of the clips have audio
+    has_audio_clips = False
+    for clip_path in safe_clips:
+        probe_cmd = [
+            "ffprobe", "-v", "quiet", "-select_streams", "a", 
+            "-show_entries", "stream=index", "-of", "csv=p=0", clip_path
+        ]
+        result = subprocess.run(probe_cmd, capture_output=True, text=True, shell=IS_WINDOWS)
+        if result.stdout.strip():
+            has_audio_clips = True
+            break
+
+    concat_cmd = [
+        "ffmpeg",
+        "-y",
+        "-f",
+        "concat",
+        "-safe",
+        "0",
+        "-i",
+        "inputs.txt",
+        "-c:v",
+        "copy"
+    ]
+    
+    # Only add audio codec if clips have audio
+    if has_audio_clips:
+        concat_cmd.extend(["-c:a", "aac", "-b:a", "128k"])
+    
+    concat_cmd.append(FINAL_OUTPUT)
+
     subprocess.run(
-        [
-            "ffmpeg",
-            "-y",
-            "-f",
-            "concat",
-            "-safe",
-            "0",
-            "-i",
-            "inputs.txt",
-            "-c",
-            "copy",
-            FINAL_OUTPUT,
-        ],
+        concat_cmd,
         check=True,
         shell=IS_WINDOWS,
     )
