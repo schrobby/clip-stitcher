@@ -5,7 +5,6 @@ Create video compilations from YouTube timestamps.
 Features:
 - Download and process YouTube clips from timestamped URLs
 - Stitch clips together with optional blend transitions
-- Hardware acceleration support for faster processing
 - Automatic quality optimization and format standardization
 
 Configuration options in main():
@@ -116,18 +115,8 @@ def process_video_clip(video_id, start_time, clip_duration, clip_path, temp_dir,
         
         print(f"✂️  Extracting {clip_duration}s clip from {start_time}s...")
         
-        # Hardware acceleration command
-        cmd_extract_hw = [
-            'ffmpeg', '-hwaccel', 'auto', '-i', full_video_path,
-            '-ss', str(start_time), '-t', str(clip_duration),
-            '-c:v', 'h264_nvenc', '-preset', 'fast', '-cq', '25',
-            '-vf', 'scale_npp=1920:1080:force_original_aspect_ratio=decrease,pad_npp=1920:1080:(ow-iw)/2:(oh-ih)/2,fps=30',
-            '-c:a', 'copy', '-avoid_negative_ts', 'make_zero',
-            clip_path, '-y'
-        ]
-        
-        # Software fallback command
-        cmd_extract_sw = [
+        # Software encoding command
+        cmd_extract = [
             'ffmpeg', '-i', full_video_path,
             '-ss', str(start_time), '-t', str(clip_duration),
             '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23',
@@ -136,15 +125,10 @@ def process_video_clip(video_id, start_time, clip_duration, clip_path, temp_dir,
             '-threads', '0', clip_path, '-y'
         ]
         
-        # Try hardware acceleration first
-        print("   Processing with hardware acceleration...")
-        try:
-            subprocess.run(cmd_extract_hw, capture_output=True, check=True)
-            print_success("Used hardware acceleration")
-        except subprocess.CalledProcessError:
-            print_info("Hardware acceleration failed, using software encoding...")
-            subprocess.run(cmd_extract_sw, capture_output=True, check=True)
-            print_success("Software encoding complete")
+        # Process with software encoding
+        print("   Processing video...")
+        subprocess.run(cmd_extract, capture_output=True, check=True)
+        print_success("Video processing complete")
         
         # Remove the full video file to save space
         os.remove(full_video_path)
