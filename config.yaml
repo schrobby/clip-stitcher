@@ -1,0 +1,15 @@
+# File paths
+input_file: "input.txt"          # File containing YouTube URLs (one per line)
+output_file: "compilation.mp4"  # Name of the final compiled video
+fonts_dir: "assets/fonts"        # Directory containing font files for overlays
+
+# Video processing settings
+clip_duration: 30                # Duration of each clip in seconds
+use_transitions: true            # Enable smooth blend transitions between clips
+transition_duration: 1         # Duration of each transition in seconds
+
+# Quality settings (advanced)
+# Uncomment and modify these if you want to change default behavior:
+# video_quality: "1080p"         # Target video quality (720p, 1080p)
+# encoding_preset: "ultrafast"   # FFmpeg encoding speed (ultrafast, fast, medium, slow)
+# crf_value: 23                  # Constant Rate Factor for quality (lower = better quality, larger file)
