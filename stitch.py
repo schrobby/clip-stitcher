@@ -1,18 +1,3 @@
-"""
-YouTube Clip Stitcher - Main Application
-Create video compilations from YouTube timestamps.
-
-Features:
-- Download and process YouTube clips from timestamped URLs
-- Stitch clips together with optional blend transitions
-- Automatic quality optimization and format standardization
-
-Configuration options in utils/config.py:
-- use_transitions: Enable/disable blend transitions between clips
-- transition_duration: Duration of transition effect in seconds
-- clip_duration: Length of each clip in seconds
-"""
-
 import os
 import subprocess
 import tempfile
