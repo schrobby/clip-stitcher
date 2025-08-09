@@ -62,14 +62,6 @@ input_file: "input.txt"          # File with your YouTube URLs
 fonts_dir: "assets/fonts"        # Where the overlay fonts are stored
 ```
 
-## 🎯 Perfect For
-
-- **Gaming highlights** - Best moments from streamers
-- **Educational content** - Key points from multiple videos  
-- **Music compilations** - Favorite song segments
-- **Comedy clips** - Funniest moments compilation
-- **Tutorial mashups** - Tips from different creators
-
 ## 🔧 Troubleshooting
 
 **"ffmpeg not found" error?**
@@ -123,7 +115,3 @@ clip-stitcher/
 ## 📜 License
 
 MIT License - Use this however you want! See `LICENSE` file for details.
-
----
-
-**Made with ❤️ for content creators and video enthusiasts!**
