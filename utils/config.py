@@ -16,6 +16,7 @@ class Config:
         self.clip_duration = 30  # seconds
         self.use_transitions = True  # Set to False for faster processing without transitions
         self.transition_duration = 1.0  # Duration of blend transition in seconds
+        self.fonts_dir = "assets/fonts"
 
 
 def read_input_file(config):

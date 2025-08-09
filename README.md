@@ -6,6 +6,7 @@ A Python script that creates video compilations from YouTube timestamp links wit
 
 - Download and process clips from YouTube URLs with timestamps
 - Optional smooth blend transitions between clips
+- Large clip number overlay in the bottom-left of each clip
 - Automatic video quality normalization (1080p, 30fps)
 - Clean modular codebase for easy customization
 
